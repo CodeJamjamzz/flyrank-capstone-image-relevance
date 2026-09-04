@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-app = FastAPI(title="Usage Metering and Billing Engine")
+app = FastAPI(title="FlyRank Image Relevance")
 
 
 @app.get("/health")
