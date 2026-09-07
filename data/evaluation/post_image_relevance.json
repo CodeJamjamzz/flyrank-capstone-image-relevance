@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "red_fox_snowy_rock",
+      "post_text": "A red fox resting on a snowy rock outdoors.",
+      "expected_image_path": "data/corpus/raw/red_fox/red_fox_003.jpg",
+      "expected_subject": "red fox"
+    },
+    {
+      "id": "red_fox_wildflowers",
+      "post_text": "Two red foxes resting in green grass with small wildflowers.",
+      "expected_image_path": "data/corpus/raw/red_fox/red_fox_005.jpg",
+      "expected_subject": "red fox"
+    },
+    {
+      "id": "wolf_dense_forest",
+      "post_text": "A gray wolf stands between bare tree trunks in a dense forest.",
+      "expected_image_path": "data/corpus/raw/wolf/wolf_004.jpg",
+      "expected_subject": "wolf"
+    },
+    {
+      "id": "wolf_grassy_meadow",
+      "post_text": "A gray wolf walks through a grassy meadow with tiny yellow flowers.",
+      "expected_image_path": "data/corpus/raw/wolf/wolf_005.jpg",
+      "expected_subject": "wolf"
+    },
+    {
+      "id": "wolf_mossy_woodland",
+      "post_text": "A grey wolf stands in profile near mossy rocks and logs in woodland.",
+      "expected_image_path": "data/corpus/raw/wolf/wolf_008.jpg",
+      "expected_subject": "wolf"
+    },
+    {
+      "id": "wolf_rocky_profile",
+      "post_text": "A close profile view of a wolf in a rocky environment.",
+      "expected_image_path": "data/corpus/raw/wolf/wolf_010.jpg",
+      "expected_subject": "wolf"
+    },
+    {
+      "id": "dog_studio_portrait",
+      "post_text": "A black and white studio portrait of a small dog wearing a collar against black.",
+      "expected_image_path": "data/corpus/raw/dog/dog_010.jpg",
+      "expected_subject": "dog"
+    },
+    {
+      "id": "bear_murky_water",
+      "post_text": "A large brown bear standing in murky water beside another bear.",
+      "expected_image_path": "data/corpus/raw/bear/bear_001.jpg",
+      "expected_subject": "bear"
+    },
+    {
+      "id": "bear_snowy_fur",
+      "post_text": "A close-up brown bear with snow dusting on its fur in a dark forest.",
+      "expected_image_path": "data/corpus/raw/bear/bear_009.jpg",
+      "expected_subject": "bear"
+    },
+    {
+      "id": "deer_velvet_antlers",
+      "post_text": "A red deer stag in a forest with velvet peeling from its antlers.",
+      "expected_image_path": "data/corpus/raw/deer/deer_007.jpg",
+      "expected_subject": "deer"
+    }
+  ]
+}

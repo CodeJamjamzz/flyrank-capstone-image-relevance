@@ -185,6 +185,7 @@ class Suggestion(Base):
             name="ck_suggestions_similarity_range",
         ),
         Index("ix_suggestions_post_status", "post_id", "status"),
+        Index("ix_suggestions_status_created_at", "status", "created_at"),
     )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     post_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"))

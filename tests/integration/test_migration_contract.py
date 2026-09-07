@@ -9,3 +9,10 @@ def test_initial_migration_defines_vector_extension_and_schema_creation() -> Non
     assert "CREATE EXTENSION IF NOT EXISTS vector" in migration
     assert "Base.metadata.create_all" in migration
     assert "20260905_0001" in migration
+
+
+def test_review_migration_adds_pending_review_index() -> None:
+    migration = Path("alembic/versions/20260907_0002_review_index.py").read_text(encoding="utf-8")
+
+    assert "ix_suggestions_status_created_at" in migration
+    assert "created_at" in migration

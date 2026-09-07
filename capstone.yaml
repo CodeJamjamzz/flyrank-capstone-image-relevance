@@ -1,0 +1,20 @@
+# Evaluator manifest for the Flyrank image-relevance capstone.
+# Run `seed` once before `run`; both commands are safe to repeat.
+run: docker compose up -d --build
+seed: docker compose up -d postgres && python -m alembic upgrade head && python -m app.cli.import_corpus
+test: python -m pytest
+base_url: http://localhost:8000
+# Matching workflow: first call POST /posts, then use its returned id in GET /posts/{post_id}/images.
+endpoints:
+  - method: GET
+    path: /health
+    description: Confirms that the FastAPI service is running.
+  - method: POST
+    path: /posts
+    description: Step 1. Saves the post text and creates its embedding. The response returns the post id needed in Step 2.
+  - method: GET
+    path: /posts/{post_id}/images
+    description: Step 2. Uses the id returned by POST /posts to return ranked related images, guard rejections, or no confident match.
+  - method: GET
+    path: /suggestions?status=pending_review
+    description: Lists suggestions awaiting human review.
