@@ -16,7 +16,16 @@ Run commands from the repository root. If a command fails, first inspect this fi
 | Run tests | `pytest` |
 | Create a migration | `alembic revision --autogenerate -m "describe_change"` |
 | Apply migrations | `alembic upgrade head` |
+| Import a complete image corpus manifest | `python -m app.cli.import_corpus` |
+| Start the paced image-processing worker in the background | `docker compose up -d --build --force-recreate image-worker` |
+| Check image-processing status counts | `docker compose exec postgres psql -U metering -d metering -c "SELECT processing_status, count(*) FROM images GROUP BY processing_status;"` |
+| Show recorded vision calls and estimated costs | `python -m app.cli.vision_costs` |
+| Create missing embeddings for accepted corpus images | `python -m app.cli.embed_corpus` |
+| Show recorded embedding calls and estimated costs | `python -m app.cli.embedding_costs` |
+| Create an image-recommendation post | `Invoke-RestMethod -Method Post -Uri http://localhost:8000/posts -ContentType 'application/json' -Body '{"text":"A red fox in a snowy forest"}'` |
+| Retrieve post image suggestions | `Invoke-RestMethod http://localhost:8000/posts/<post-id>/images` |
+| Stop the image-processing worker | `docker compose stop image-worker` |
 | Forward Stripe test events | `stripe listen --forward-to localhost:8000/webhooks/stripe` |
 | Trigger a Stripe test event | `stripe trigger customer.subscription.created` |
 
-Copy `.env.example` to `.env` before starting Docker. Set `STRIPE_WEBHOOK_SECRET` to the signing secret reported by `stripe listen`.
+Copy `.env.example` to `.env` before starting Docker. Set `GEMINI_API_KEY`, `GEMINI_VISION_MODEL`, and `EMBEDDING_MODEL` before starting `image-worker`; the corpus importer refuses a missing or incomplete provenance manifest. Set `STRIPE_WEBHOOK_SECRET` to the signing secret reported by `stripe listen`.

@@ -1,6 +1,4 @@
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 from app.schemas.common import normalize_label
 
@@ -41,7 +39,7 @@ class PrimarySubjectPayload(BaseModel):
 class ImageMetadataPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    schema_version: Literal[1]
+    schema_version: StrictInt = Field(ge=1, le=1)
     caption: str = Field(min_length=1, max_length=500)
     primary_subject: PrimarySubjectPayload
     tags: list[TagPayload] = Field(min_length=1, max_length=10)

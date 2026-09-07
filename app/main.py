@@ -1,4 +1,25 @@
-from fastapi import FastAPI
+import uuid
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.db.models import Image, Post, Suggestion
+from app.db.session import get_session
+from app.schemas.contracts import (
+    PostCreateRequest,
+    PostCreateResponse,
+    SuggestionListResponse,
+    SuggestionResponse,
+)
+from app.services.embeddings import (
+    EmbeddingProvider,
+    GeminiEmbeddingProvider,
+    embed_post_if_needed,
+    latest_embedding_for_post,
+)
+from app.services.matching import create_suggestions_if_needed, recognize_subject
 
 app = FastAPI(title="FlyRank Image Relevance")
 
@@ -6,3 +27,88 @@ app = FastAPI(title="FlyRank Image Relevance")
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def get_embedding_provider() -> EmbeddingProvider:
+    try:
+        return GeminiEmbeddingProvider(settings)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(error),
+        ) from error
+
+
+@app.post("/posts", response_model=PostCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_post(
+    payload: PostCreateRequest,
+    session: Annotated[Session, Depends(get_session)],
+    provider: Annotated[EmbeddingProvider, Depends(get_embedding_provider)],
+) -> PostCreateResponse:
+    post = Post(text=payload.text, recognized_subject=recognize_subject(payload.text))
+    session.add(post)
+    session.flush()
+    embedding_ready = embed_post_if_needed(session, post.id, post.text, provider, settings)
+    session.refresh(post)
+    return PostCreateResponse(
+        id=post.id,
+        text=post.text,
+        recognized_subject=post.recognized_subject,
+        embedding_ready=embedding_ready,
+        created_at=post.created_at,
+    )
+
+
+@app.get("/posts/{post_id}/images", response_model=SuggestionListResponse)
+def get_post_images(
+    post_id: uuid.UUID,
+    session: Annotated[Session, Depends(get_session)],
+) -> SuggestionListResponse:
+    post = session.get(Post, post_id)
+    if post is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+    if latest_embedding_for_post(session, post.id) is None:
+        provider = get_embedding_provider()
+        embed_post_if_needed(session, post.id, post.text, provider, settings)
+
+    suggestions = create_suggestions_if_needed(session, post.id, settings)
+    image_ids = [
+        suggestion.image_id for suggestion in suggestions if suggestion.image_id is not None
+    ]
+    images = {
+        image.id: image for image in session.query(Image).filter(Image.id.in_(image_ids)).all()
+    }
+    return SuggestionListResponse(
+        post_id=post.id,
+        suggestions=[
+            _suggestion_response(
+                suggestion,
+                images.get(suggestion.image_id) if suggestion.image_id is not None else None,
+                rank,
+            )
+            for rank, suggestion in enumerate(suggestions, start=1)
+        ],
+    )
+
+
+def _suggestion_response(
+    suggestion: Suggestion,
+    image: Image | None,
+    rank: int,
+) -> SuggestionResponse:
+    return SuggestionResponse(
+        id=suggestion.id,
+        post_id=suggestion.post_id,
+        image_id=suggestion.image_id,
+        image_file_path=image.file_path if image is not None else None,
+        image_source_url=image.source_url if image is not None else None,
+        rank=rank if suggestion.image_id is not None else None,
+        similarity_score=float(suggestion.similarity_score)
+        if suggestion.similarity_score is not None
+        else None,
+        status=suggestion.status,
+        reason_code=suggestion.reason_code,
+        reason_text=suggestion.reason_text,
+        created_at=suggestion.created_at,
+    )
