@@ -27,24 +27,41 @@ class PostCreateRequest(BaseModel):
     text: str = Field(min_length=1)
 
 
-class SuggestionInspectionResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    post_id: uuid.UUID
-    image_id: uuid.UUID | None
-    similarity_score: float | None
-    status: str
-    reason_code: str
-    reason_text: str
-    created_at: datetime
-
-
 class ReviewDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     decision: ReviewDecisionType
     reviewer_note: str | None = Field(default=None, max_length=2_000)
+
+
+class ReviewDecisionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    suggestion_id: uuid.UUID
+    decision: ReviewDecisionType
+    reviewer_note: str | None
+    created_at: datetime
+
+
+class SuggestionInspectionResponse(BaseModel):
+    id: uuid.UUID
+    post_id: uuid.UUID
+    post_text: str
+    image_id: uuid.UUID | None
+    image_file_path: str | None
+    image_source_url: str | None
+    image_primary_subject: str | None
+    similarity_score: float | None
+    status: SuggestionStatus
+    reason_code: str
+    reason_text: str
+    review_decision: ReviewDecisionResponse | None
+    created_at: datetime
+
+
+class SuggestionReviewListResponse(BaseModel):
+    suggestions: list[SuggestionInspectionResponse]
 
 
 class PostCreateResponse(BaseModel):

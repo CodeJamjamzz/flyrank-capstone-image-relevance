@@ -6,14 +6,19 @@ This capstone combines a reliable SaaS usage-metering and billing backend with a
 
 ```mermaid
 flowchart LR
-    A[Images] --> B[Batch vision processing]
-    B --> C[Validated image metadata and embeddings]
-    D[Posts] --> E[Post embeddings]
-    C --> F[Similarity ranking]
-    E --> F
-    F --> G[Mismatch guard]
-    G --> H[Suggestion or no confident match]
-    H --> I[Review: inspect, approve, reject]
+    A[Licensed image corpus] --> B[Batch vision processing]
+    B --> C[Schema validation and confidence checks]
+    C --> D[(Image metadata, tags, and embeddings)]
+    E[Post text] --> F[Post embedding]
+    D --> G[pgvector similarity ranking]
+    F --> G
+    G --> H[Mismatch guard]
+    H --> I[Pending-review suggestion]
+    H --> J[Saved rejection or no confident match]
+    I --> K[Review API]
+    K --> L[Approved or rejected decision]
+    I --> M[Evaluation report and top-1 precision]
+    J --> M
 ```
 
 See [the full architecture](docs/specs/architecture.md), [the requirement contract](docs/specs/ai-image-recommendation-requirements.md), and [the capstone constraints](docs/specs/capstone-constraints.md).
@@ -209,9 +214,30 @@ Invoke-RestMethod http://localhost:8000/posts/<post-id>/images
 
 The response returns ranked passing suggestions first. It also records and exposes guard rejections, such as a wolf image rejected for a red-fox post. If no candidate passes, the response returns `no_confident_match` with a reason.
 
-## Evaluation
+## Step 4: Review and evaluation
 
-Top-1 precision has not been measured because the labeled post-to-image evaluation set has not been created. The matching implementation is available. When evaluation begins, this section will report the measured precision, the number of labeled posts, and the command used to reproduce it.
+The API exposes a reviewer workflow for suggestions that passed the automatic guard. A reviewer can list pending work, inspect the post and candidate image, then record an approval or rejection. Automatic mismatch rejections cannot be manually reviewed through this endpoint because they already have a final machine decision.
+
+```powershell
+# List pending suggestions. Omit the query parameter to use the same default.
+Invoke-RestMethod http://localhost:8000/suggestions?status=pending_review
+
+# Inspect one candidate, including its machine explanation and any review decision.
+Invoke-RestMethod http://localhost:8000/suggestions/<suggestion-id>
+
+# Approve or reject a pending suggestion.
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/suggestions/<suggestion-id>/review -ContentType 'application/json' -Body '{"decision":"approved","reviewer_note":"Relevant image."}'
+```
+
+The committed [evaluation dataset](data/evaluation/post_image_relevance.json) contains 10 labeled post-to-image cases. Run the real matching service and save a reviewer-visible report with:
+
+```powershell
+python -m app.cli.evaluate_matching
+```
+
+The command verifies that every expected image is accepted and embedded before it scores. It saves database audit records and writes [the evaluation report](data/evaluation/evaluation-report.json).
+
+The measured result from the 2026-09-07 run is **9/10 correct top-ranked suggestions, or 90.00% top-1 precision**. The dog studio-portrait case did not return its expected dog image, so the result intentionally records a failure rather than hiding it.
 
 ## Project rules
 

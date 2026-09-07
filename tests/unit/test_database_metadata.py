@@ -33,6 +33,9 @@ def test_required_indexes_exist() -> None:
     assert "ix_images_pending_retry" in {index.name for index in Image.__table__.indexes}
     assert "ix_embeddings_vector_cosine" in {index.name for index in Embedding.__table__.indexes}
     assert "ix_model_calls_created_at" in {index.name for index in ModelCall.__table__.indexes}
+    assert "ix_suggestions_status_created_at" in {
+        index.name for index in Base.metadata.tables["suggestions"].indexes
+    }
 
 
 def test_embedding_column_uses_768_dimensions() -> None:

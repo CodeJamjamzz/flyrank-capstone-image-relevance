@@ -24,6 +24,10 @@ Run commands from the repository root. If a command fails, first inspect this fi
 | Show recorded embedding calls and estimated costs | `python -m app.cli.embedding_costs` |
 | Create an image-recommendation post | `Invoke-RestMethod -Method Post -Uri http://localhost:8000/posts -ContentType 'application/json' -Body '{"text":"A red fox in a snowy forest"}'` |
 | Retrieve post image suggestions | `Invoke-RestMethod http://localhost:8000/posts/<post-id>/images` |
+| List pending review suggestions | `Invoke-RestMethod http://localhost:8000/suggestions?status=pending_review` |
+| Inspect a suggestion and its machine explanation | `Invoke-RestMethod http://localhost:8000/suggestions/<suggestion-id>` |
+| Record a review decision | `Invoke-RestMethod -Method Post -Uri http://localhost:8000/suggestions/<suggestion-id>/review -ContentType 'application/json' -Body '{"decision":"approved","reviewer_note":"Relevant image."}'` |
+| Run the 10-case top-1 precision evaluation | `python -m app.cli.evaluate_matching` |
 | Stop the image-processing worker | `docker compose stop image-worker` |
 | Forward Stripe test events | `stripe listen --forward-to localhost:8000/webhooks/stripe` |
 | Trigger a Stripe test event | `stripe trigger customer.subscription.created` |
