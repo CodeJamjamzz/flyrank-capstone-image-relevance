@@ -91,7 +91,7 @@ python -m app.cli.embedding_costs
 
 Image matching uses two endpoints as one workflow: call POST /posts first to save and embed the text, then use its returned ID with GET /posts/{post_id}/images to receive ranked image suggestions.
 
-1. Send `POST http://localhost:8000/posts` with this raw JSON body:
+1. Send `POST http://localhost:8000/posts` with this raw JSON body. To make a client retry safe, optionally send a unique `Idempotency-Key` request header; sending the same key and text again returns the original post instead of creating another one:
 
 ```json
 {
@@ -123,9 +123,10 @@ Copy `.env.example` to `.env`, then set these values:
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_VISION_MODEL=gemini-3.6-flash
 IMAGE_WORKER_PROCESSING_DELAY_SECONDS=30
+IMAGE_WORKER_RATE_LIMIT_BACKOFF_SECONDS=3600
 ```
 
-Increase the delay to `60` seconds for a slower free-tier pace. Do not commit `.env`.
+Increase the delay to `60` seconds for a slower free-tier pace. When Gemini returns a rate-limit response, the worker pauses for `IMAGE_WORKER_RATE_LIMIT_BACKOFF_SECONDS` (one hour by default) and resumes later without exhausting the three-attempt cap. Do not commit `.env`.
 
 ### 2. Import and process the full corpus
 
@@ -155,6 +156,18 @@ Count images by processing status:
 
 ```powershell
 docker compose exec postgres psql -U metering -d metering -c "SELECT processing_status, count(*) FROM images GROUP BY processing_status;"
+```
+
+View permanent failures after a provider or configuration problem:
+
+```powershell
+python -m app.cli.failed_images
+```
+
+After fixing the problem, explicitly requeue those images:
+
+```powershell
+python -m app.cli.retry_failed_images
 ```
 
 View recorded Gemini calls, input and output units, and estimated cost:

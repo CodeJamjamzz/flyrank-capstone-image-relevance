@@ -59,9 +59,10 @@ class VisionResponse:
 
 
 class VisionProviderError(RuntimeError):
-    def __init__(self, message: str, retryable: bool) -> None:
+    def __init__(self, message: str, retryable: bool, rate_limited: bool = False) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.rate_limited = rate_limited
 
 
 class VisionProvider(Protocol):
@@ -105,8 +106,11 @@ class GeminiVisionProvider:
                 ),
             )
         except Exception as error:
+            message = str(error)
             raise VisionProviderError(
-                str(error), retryable=_is_retryable_provider_error(error)
+                message,
+                retryable=_is_retryable_provider_error(error),
+                rate_limited=_is_rate_limited_provider_error(message),
             ) from error
 
         usage = response.usage_metadata
@@ -139,4 +143,12 @@ def _is_retryable_provider_error(error: Exception) -> bool:
     return any(
         marker in message
         for marker in ("429", "rate limit", "timeout", "connection", "500", "502", "503", "504")
+    )
+
+
+def _is_rate_limited_provider_error(message: str) -> bool:
+    normalized_message = message.lower()
+    return any(
+        marker in normalized_message
+        for marker in ("429", "rate limit", "resource exhausted", "quota exceeded")
     )

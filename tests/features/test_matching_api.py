@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main_module
@@ -101,3 +102,59 @@ def test_suggestion_endpoint_returns_not_found_for_unknown_post(monkeypatch) -> 
         response = client.get(f"/posts/{uuid.uuid4()}/images")
 
     assert response.status_code == 404
+
+
+class ExistingPostSession(FakeSession):
+    def scalar(self, statement: object) -> Post | None:
+        del statement
+        return self.post
+
+
+def test_create_post_returns_existing_result_for_same_idempotency_key(monkeypatch) -> None:
+    post = Post(
+        id=uuid.uuid4(),
+        text="A red fox in snow",
+        recognized_subject="red fox",
+        idempotency_key="post-retry-1",
+        created_at=datetime.now(UTC),
+    )
+    session = ExistingPostSession(post)
+    monkeypatch.setitem(app.dependency_overrides, get_session, lambda: session)
+    monkeypatch.setitem(app.dependency_overrides, get_embedding_provider, lambda: object())
+    monkeypatch.setattr(main_module, "latest_embedding_for_post", lambda *args: object())
+    monkeypatch.setattr(
+        main_module,
+        "embed_post_if_needed",
+        lambda *args: pytest.fail("duplicate request must not create a second embedding"),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/posts",
+            json={"text": "A red fox in snow"},
+            headers={"Idempotency-Key": "post-retry-1"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(post.id)
+
+
+def test_create_post_rejects_idempotency_key_reused_for_different_text(monkeypatch) -> None:
+    post = Post(
+        id=uuid.uuid4(),
+        text="A red fox in snow",
+        idempotency_key="post-retry-1",
+        created_at=datetime.now(UTC),
+    )
+    session = ExistingPostSession(post)
+    monkeypatch.setitem(app.dependency_overrides, get_session, lambda: session)
+    monkeypatch.setitem(app.dependency_overrides, get_embedding_provider, lambda: object())
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/posts",
+            json={"text": "A wolf in snow"},
+            headers={"Idempotency-Key": "post-retry-1"},
+        )
+
+    assert response.status_code == 409
