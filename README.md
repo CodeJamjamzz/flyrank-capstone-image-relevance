@@ -89,6 +89,8 @@ python -m app.cli.embedding_costs
 
 ### Test image matching in Postman
 
+Image matching uses two endpoints as one workflow: call POST /posts first to save and embed the text, then use its returned ID with GET /posts/{post_id}/images to receive ranked image suggestions.
+
 1. Send `POST http://localhost:8000/posts` with this raw JSON body:
 
 ```json

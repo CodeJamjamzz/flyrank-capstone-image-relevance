@@ -1,18 +1,19 @@
 # Evidence checklist
 
-This file provides reviewer-verifiable proof for the AI image recommendation completion contract. Do not mark an item complete until the evidence includes a command, test output, API response, screenshot reference, or committed artifact that a reviewer can inspect quickly.
+This file maps every requirement in the AI image recommendation completion contract to reviewer-verifiable proof. Each row below corresponds to one checkbox in the requirement contract. Status `Verified` means the proof was produced by a committed artifact, an automated test, or a real command run.
 
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| Retryable batch image processing | Implemented | `tests/unit/test_image_processing_worker.py` verifies retry behavior. Corpus completion remains an operational task because some live images are still failed. |
-| Schema validation and invalid-output handling | Verified | `tests/unit/test_image_metadata_schemas.py` validates accepted payloads and rejects malformed, duplicate, unknown-field, and unsupported-version responses. |
-| Low-confidence classification flagging | Verified | `tests/unit/test_image_metadata_schemas.py` verifies confidence validation and the low-confidence processing path. |
-| Per-call vision and embedding cost tracking | Verified | Live commands `python -m app.cli.vision_costs` and `python -m app.cli.embedding_costs` report recorded model calls, units, status, and estimated cost. |
-| Image and post embedding storage | Verified | Live evaluation on 2026-09-07 created post embeddings and used accepted image embeddings; see `data/evaluation/evaluation-report.json`. |
-| Ranked post image suggestions | Verified | Live evaluation report records the top-ranked passing suggestion for all 10 cases. |
-| Equivalent-concept semantic match | Verified | Stage 3 taxonomy tests cover `Vulpes vulpes` matching the red-fox canonical subject. |
-| Wolf-on-a-fox-post mismatch rejection | Verified | The live report for `red_fox_snowy_rock` records rejected wolf candidates with a human-readable subject mismatch explanation. |
-| No-confident-match response with reasons | Verified | Matching service tests cover unavailable and below-threshold corpus responses with explanations. |
-| Database models and indexes | Verified | `alembic upgrade head` applied migration `20260907_0002`; migration tests verify the global pending-review index. |
-| Validated API and review workflow | Verified | `tests/features/test_review_api.py` covers pending listing, inspection, approval, rejection, invalid input, unknown IDs, and review conflicts. |
-| Labeled evaluation set and top-1 precision | Verified | Live command `python -m app.cli.evaluate_matching` on 2026-09-07 produced `correct_top_1=9/10`, `top_1_precision=0.9000`, saved in `data/evaluation/evaluation-report.json`. |
+| Vision output is structured, schema-validated, and invalid output is never trusted | Verified | `tests/unit/test_image_metadata_schemas.py` accepts valid normalized metadata and rejects invalid fields, duplicate tags, unknown fields, and unsupported schema versions. `tests/unit/test_image_processing.py::test_invalid_model_output_schedules_retry` verifies invalid model output schedules a retry. |
+| Low-confidence classifications are flagged instead of accepted | Verified | `tests/unit/test_image_processing.py::test_process_next_image_persists_valid_metadata` verifies `overall_confidence=0.50` changes the image status to `needs_review`, not `accepted`. |
+| Images are processed through a retryable batch background job | Verified | `tests/unit/test_image_processing_worker.py` and `tests/unit/test_image_processing.py::test_retry_and_cost_rules_are_visible` verify the background worker and retry schedule. |
+| Vision and embedding costs are tracked per call | Verified | `model_calls` stores model, status, units, and estimated cost. `python -m app.cli.vision_costs` and `python -m app.cli.embedding_costs` show those records. |
+| Image and post embeddings are stored, and posts return ranked image suggestions | Verified | `tests/unit/test_embeddings.py` covers embedding storage and validation. The real report at `data/evaluation/evaluation-report.json` records the top-ranked result for each evaluated post. |
+| Equivalent concepts match semantically, such as red fox and Vulpes vulpes | Verified | `tests/unit/test_matching.py::test_taxonomy_recognizes_scientific_name_alias` and `test_guard_accepts_equivalent_red_fox_subject` verify the taxonomy alias. |
+| The mismatch guard rejects the wolf-on-a-fox-post scenario | Verified | `tests/unit/test_matching.py::test_guard_rejects_wolf_for_red_fox_post_with_required_explanation` verifies the exact subject-mismatch rejection. The live `red_fox_snowy_rock` evaluation case also recorded rejected wolf candidates. |
+| Rejections include a human-readable explanation | Verified | The mismatch-guard test verifies: `Rejected because the post requests red fox, while the image primary subject is wolf.` Rejections persist `reason_code` and `reason_text` on every suggestion. |
+| No confident match returns reasons | Verified | `tests/features/test_matching_api.py::test_suggestion_endpoint_returns_cached_no_match` verifies the `no_confident_match` response and its reason text. |
+| Database models and required indexes exist | Verified | `app/db/models.py` contains images, tags, embeddings, posts, suggestions, and review decisions. `alembic upgrade head` applied `20260907_0002`; migration tests verify the pending-review index. |
+| API endpoints validate requests and support inspect, approve, and reject review actions | Verified | `tests/features/test_review_api.py` covers pending listing, inspection, approval, rejection, invalid input, unknown IDs, and review conflicts. |
+| A labeled evaluation dataset measures top-1 precision, and README reports the number | Verified | The committed 10-case dataset is `data/evaluation/post_image_relevance.json`. The real command `python -m app.cli.evaluate_matching` produced `correct_top_1=9/10` and `top_1_precision=0.9000`; the saved report and README state the same 90.00% result. |
+| README architecture explanation, diagram, and required project documentation are present | Verified | `README.md` contains the architecture Mermaid diagram, evaluator setup, batch-worker, matching, review, and evaluation instructions. The evaluator manifest is `capstone.yaml`; supporting specifications are in `docs/specs/`, commands are in `docs/ai/commands.md`, and the AI work log is `BUILDLOG.md`. |
