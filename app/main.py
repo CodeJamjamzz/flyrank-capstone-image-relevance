@@ -1,8 +1,9 @@
 import uuid
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -55,14 +56,60 @@ def get_embedding_provider() -> EmbeddingProvider:
 @app.post("/posts", response_model=PostCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_post(
     payload: PostCreateRequest,
+    response: Response,
     session: Annotated[Session, Depends(get_session)],
     provider: Annotated[EmbeddingProvider, Depends(get_embedding_provider)],
+    idempotency_key: Annotated[
+        str | None, Header(alias="Idempotency-Key", min_length=1, max_length=255)
+    ] = None,
 ) -> PostCreateResponse:
-    post = Post(text=payload.text, recognized_subject=recognize_subject(payload.text))
+    if idempotency_key is not None:
+        existing_post = session.scalar(select(Post).where(Post.idempotency_key == idempotency_key))
+        if existing_post is not None:
+            if existing_post.text != payload.text:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Idempotency-Key was already used for different post text",
+                )
+            response.status_code = status.HTTP_200_OK
+            return _post_create_response(
+                existing_post,
+                latest_embedding_for_post(session, existing_post.id) is not None,
+            )
+
+    post = Post(
+        text=payload.text,
+        recognized_subject=recognize_subject(payload.text),
+        idempotency_key=idempotency_key,
+    )
     session.add(post)
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError as error:
+        session.rollback()
+        existing_post = session.scalar(select(Post).where(Post.idempotency_key == idempotency_key))
+        if existing_post is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Post creation conflicted; retry with a new Idempotency-Key",
+            ) from error
+        if existing_post.text != payload.text:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Idempotency-Key was already used for different post text",
+            ) from error
+        response.status_code = status.HTTP_200_OK
+        return _post_create_response(
+            existing_post,
+            latest_embedding_for_post(session, existing_post.id) is not None,
+        )
+
     embedding_ready = embed_post_if_needed(session, post.id, post.text, provider, settings)
     session.refresh(post)
+    return _post_create_response(post, embedding_ready)
+
+
+def _post_create_response(post: Post, embedding_ready: bool) -> PostCreateResponse:
     return PostCreateResponse(
         id=post.id,
         text=post.text,

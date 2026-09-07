@@ -19,6 +19,8 @@ Run commands from the repository root. If a command fails, first inspect this fi
 | Import a complete image corpus manifest | `python -m app.cli.import_corpus` |
 | Start the paced image-processing worker in the background | `docker compose up -d --build --force-recreate image-worker` |
 | Check image-processing status counts | `docker compose exec postgres psql -U metering -d metering -c "SELECT processing_status, count(*) FROM images GROUP BY processing_status;"` |
+| List permanent image-processing failures and their recorded errors | `python -m app.cli.failed_images` |
+| Requeue failed corpus images after fixing a provider or configuration issue | `python -m app.cli.retry_failed_images` |
 | Show recorded vision calls and estimated costs | `python -m app.cli.vision_costs` |
 | Create missing embeddings for accepted corpus images | `python -m app.cli.embed_corpus` |
 | Show recorded embedding calls and estimated costs | `python -m app.cli.embedding_costs` |

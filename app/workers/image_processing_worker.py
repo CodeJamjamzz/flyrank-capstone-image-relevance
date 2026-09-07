@@ -14,7 +14,11 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def next_poll_delay_seconds(processed: bool, configuration: Settings) -> int:
+def next_poll_delay_seconds(
+    processed: bool, configuration: Settings, rate_limited: bool = False
+) -> int:
+    if rate_limited:
+        return configuration.image_worker_rate_limit_backoff_seconds
     if processed:
         return configuration.image_worker_processing_delay_seconds
     return configuration.image_worker_poll_interval_seconds
@@ -26,13 +30,24 @@ def run_forever() -> None:
     while True:
         try:
             with SessionLocal() as session:
-                processed = process_next_image(
+                outcome = process_next_image(
                     session, provider, settings, PROJECT_ROOT, embedding_provider
                 )
         except Exception:
             logger.exception("Image worker failed while processing an image")
-            processed = False
-        time.sleep(next_poll_delay_seconds(processed, settings))
+            outcome = None
+        if outcome is not None and outcome.rate_limited:
+            logger.warning(
+                "Vision provider rate limited the worker; pausing for %s seconds.",
+                settings.image_worker_rate_limit_backoff_seconds,
+            )
+        time.sleep(
+            next_poll_delay_seconds(
+                outcome.processed if outcome is not None else False,
+                settings,
+                rate_limited=outcome.rate_limited if outcome is not None else False,
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     maximum_processing_attempts: int = 3
     image_worker_poll_interval_seconds: int = 5
     image_worker_processing_delay_seconds: int = Field(default=30, ge=0)
+    image_worker_rate_limit_backoff_seconds: int = Field(default=3600, ge=60)
     gemini_vision_input_cost_per_million_units: Decimal = Decimal("0")
     gemini_vision_output_cost_per_million_units: Decimal = Decimal("0")
     gemini_embedding_input_cost_per_million_units: Decimal = Decimal("0")

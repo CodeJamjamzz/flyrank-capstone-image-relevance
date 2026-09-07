@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -28,12 +29,20 @@ from app.schemas.image_metadata import ImageMetadataPayload
 from app.services.embeddings import EmbeddingProvider, embed_image_if_needed
 from app.services.vision import VisionProvider, VisionProviderError, VisionResponse
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class ClaimedImage:
     image_id: uuid.UUID
     attempt_id: uuid.UUID
     file_path: str
+
+
+@dataclass(frozen=True)
+class ProcessingOutcome:
+    processed: bool
+    rate_limited: bool = False
 
 
 def claim_next_image(session: Session, now: datetime | None = None) -> ClaimedImage | None:
@@ -76,10 +85,10 @@ def process_next_image(
     configuration: Settings,
     project_root: Path,
     embedding_provider: EmbeddingProvider | None = None,
-) -> bool:
+) -> ProcessingOutcome:
     claimed_image = claim_next_image(session)
     if claimed_image is None:
-        return False
+        return ProcessingOutcome(processed=False)
 
     image = session.get(Image, claimed_image.image_id)
     attempt = session.get(ProcessingAttempt, claimed_image.attempt_id)
@@ -91,14 +100,22 @@ def process_next_image(
         response = provider.analyze_image(image_path)
     except VisionProviderError as error:
         _record_failed_model_call(session, image.id, provider.model_name)
-        _complete_failure(session, image, attempt, error, error.retryable, configuration)
-        return True
+        _complete_failure(
+            session,
+            image,
+            attempt,
+            error,
+            error.retryable,
+            configuration,
+            rate_limited=error.rate_limited,
+        )
+        return ProcessingOutcome(processed=True, rate_limited=error.rate_limited)
     except OSError as error:
         _record_failed_model_call(session, image.id, provider.model_name)
         _complete_failure(
             session, image, attempt, error, retryable=False, configuration=configuration
         )
-        return True
+        return ProcessingOutcome(processed=True)
 
     _record_successful_model_call(session, image.id, response, configuration)
     try:
@@ -107,7 +124,7 @@ def process_next_image(
         _complete_failure(
             session, image, attempt, error, retryable=True, configuration=configuration
         )
-        return True
+        return ProcessingOutcome(processed=True)
 
     _persist_metadata(session, image, metadata)
     attempt.status = AttemptStatus.SUCCEEDED
@@ -123,7 +140,7 @@ def process_next_image(
     session.commit()
     if image.processing_status == ImageProcessingStatus.ACCEPTED and embedding_provider is not None:
         embed_image_if_needed(session, image, embedding_provider, configuration)
-    return True
+    return ProcessingOutcome(processed=True)
 
 
 def resolve_image_path(project_root: Path, file_path: str) -> Path:
@@ -195,13 +212,22 @@ def _complete_failure(
     error: Exception,
     retryable: bool,
     configuration: Settings,
+    rate_limited: bool = False,
 ) -> None:
     now = utc_now()
     attempt.error_code = type(error).__name__
     attempt.error_message = str(error)[:2000]
     attempt.finished_at = now
 
-    if retryable and image.retry_count < configuration.maximum_processing_attempts:
+    if rate_limited:
+        next_retry_at = now + timedelta(
+            seconds=configuration.image_worker_rate_limit_backoff_seconds
+        )
+        attempt.status = AttemptStatus.RETRY_SCHEDULED
+        attempt.retry_at = next_retry_at
+        image.processing_status = ImageProcessingStatus.RETRY_SCHEDULED
+        image.next_retry_at = next_retry_at
+    elif retryable and image.retry_count < configuration.maximum_processing_attempts:
         next_retry_at = now + retry_delay(image.retry_count)
         attempt.status = AttemptStatus.RETRY_SCHEDULED
         attempt.retry_at = next_retry_at
@@ -211,6 +237,12 @@ def _complete_failure(
         attempt.status = AttemptStatus.FAILED
         image.processing_status = ImageProcessingStatus.FAILED
         image.next_retry_at = None
+        logger.error(
+            "Image processing permanently failed for %s after attempt %s: %s",
+            image.file_path,
+            image.retry_count,
+            error,
+        )
     session.commit()
 
 

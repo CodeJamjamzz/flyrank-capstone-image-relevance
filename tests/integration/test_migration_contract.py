@@ -16,3 +16,12 @@ def test_review_migration_adds_pending_review_index() -> None:
 
     assert "ix_suggestions_status_created_at" in migration
     assert "created_at" in migration
+
+
+def test_post_idempotency_migration_adds_unique_constraint() -> None:
+    migration = Path("alembic/versions/20260908_0003_post_idempotency.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "idempotency_key" in migration
+    assert "uq_posts_idempotency_key" in migration
