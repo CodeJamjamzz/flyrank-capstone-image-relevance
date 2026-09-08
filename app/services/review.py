@@ -5,7 +5,9 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.tenancy import DEFAULT_TENANT_ID
 from app.db.models import (
+    Post,
     ReviewDecision,
     ReviewDecisionType,
     Suggestion,
@@ -24,15 +26,29 @@ class SuggestionNotReviewableError(RuntimeError):
 def list_suggestions_for_review(
     session: Session,
     suggestion_status: SuggestionStatus | None,
+    tenant_id: uuid.UUID = DEFAULT_TENANT_ID,
 ) -> list[Suggestion]:
-    statement = select(Suggestion).order_by(Suggestion.created_at.desc(), Suggestion.id)
+    statement = (
+        select(Suggestion)
+        .join(Post, Post.id == Suggestion.post_id)
+        .where(Post.tenant_id == tenant_id)
+        .order_by(Suggestion.created_at.desc(), Suggestion.id)
+    )
     if suggestion_status is not None:
         statement = statement.where(Suggestion.status == suggestion_status)
     return list(session.scalars(statement))
 
 
-def get_suggestion_for_review(session: Session, suggestion_id: uuid.UUID) -> Suggestion:
-    suggestion = session.get(Suggestion, suggestion_id)
+def get_suggestion_for_review(
+    session: Session,
+    suggestion_id: uuid.UUID,
+    tenant_id: uuid.UUID = DEFAULT_TENANT_ID,
+) -> Suggestion:
+    suggestion = session.scalar(
+        select(Suggestion)
+        .join(Post, Post.id == Suggestion.post_id)
+        .where(Suggestion.id == suggestion_id, Post.tenant_id == tenant_id)
+    )
     if suggestion is None:
         raise SuggestionNotFoundError(f"Suggestion {suggestion_id} does not exist")
     return suggestion
@@ -55,9 +71,13 @@ def review_suggestion(
     suggestion_id: uuid.UUID,
     decision: ReviewDecisionType,
     reviewer_note: str | None,
+    tenant_id: uuid.UUID = DEFAULT_TENANT_ID,
 ) -> Suggestion:
     suggestion = session.scalar(
-        select(Suggestion).where(Suggestion.id == suggestion_id).with_for_update()
+        select(Suggestion)
+        .join(Post, Post.id == Suggestion.post_id)
+        .where(Suggestion.id == suggestion_id, Post.tenant_id == tenant_id)
+        .with_for_update()
     )
     if suggestion is None:
         raise SuggestionNotFoundError(f"Suggestion {suggestion_id} does not exist")

@@ -25,3 +25,14 @@ def test_post_idempotency_migration_adds_unique_constraint() -> None:
 
     assert "idempotency_key" in migration
     assert "uq_posts_idempotency_key" in migration
+
+
+def test_tenant_migration_backfills_ownership_and_cost_indexes() -> None:
+    migration = Path("alembic/versions/20260908_0004_tenant_budget_guard.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "tenants" in migration
+    assert "tenant_id" in migration
+    assert "uq_posts_tenant_idempotency_key" in migration
+    assert "ix_model_calls_tenant_created_at" in migration

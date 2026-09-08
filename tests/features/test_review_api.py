@@ -53,7 +53,7 @@ def test_list_review_suggestions_defaults_to_pending(monkeypatch) -> None:
     monkeypatch.setattr(
         main_module,
         "list_suggestions_for_review",
-        lambda session, suggestion_status: (
+        lambda session, suggestion_status, tenant_id: (
             captured_status.append(suggestion_status) or [suggestion]
         ),
     )

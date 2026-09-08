@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.tenancy import DEFAULT_TENANT_ID
 from app.db.models import (
     Embedding,
     Image,
@@ -22,6 +23,7 @@ from app.db.models import (
     ModelOperation,
     Tag,
 )
+from app.services.budget import CostBudgetExceededError, ensure_cost_budget_available
 
 EMBEDDING_DIMENSIONS = 768
 
@@ -121,6 +123,7 @@ def embed_image_if_needed(
         text=text,
         provider=provider,
         configuration=configuration,
+        tenant_id=image.tenant_id,
     )
 
 
@@ -130,6 +133,7 @@ def embed_post_if_needed(
     text: str,
     provider: EmbeddingProvider,
     configuration: Settings,
+    tenant_id: uuid.UUID = DEFAULT_TENANT_ID,
 ) -> bool:
     return _embed_if_needed(
         session=session,
@@ -138,6 +142,7 @@ def embed_post_if_needed(
         text=text,
         provider=provider,
         configuration=configuration,
+        tenant_id=tenant_id,
     )
 
 
@@ -157,6 +162,7 @@ def _embed_if_needed(
     text: str,
     provider: EmbeddingProvider,
     configuration: Settings,
+    tenant_id: uuid.UUID,
 ) -> bool:
     checksum = content_checksum(text)
     owner_column = Embedding.image_id if owner_type == "image" else Embedding.post_id
@@ -171,14 +177,17 @@ def _embed_if_needed(
         return True
 
     try:
+        ensure_cost_budget_available(session, tenant_id, configuration)
         response = provider.embed_text(text)
+    except CostBudgetExceededError:
+        return False
     except EmbeddingProviderError:
-        _record_failed_model_call(session, owner_id, owner_type, provider.model_name)
+        _record_failed_model_call(session, owner_id, owner_type, provider.model_name, tenant_id)
         session.commit()
         return False
 
     if len(response.values) != EMBEDDING_DIMENSIONS:
-        _record_failed_model_call(session, owner_id, owner_type, response.model_name)
+        _record_failed_model_call(session, owner_id, owner_type, response.model_name, tenant_id)
         session.commit()
         return False
 
@@ -193,6 +202,7 @@ def _embed_if_needed(
         input_units=response.input_units,
         estimated_cost_usd=estimated_embedding_cost_usd(response.input_units, configuration),
         status=ModelCallStatus.SUCCEEDED,
+        tenant_id=tenant_id,
     )
     if owner_type == "image":
         embedding.image_id = owner_id
@@ -216,11 +226,13 @@ def _record_failed_model_call(
     owner_id: uuid.UUID,
     owner_type: str,
     model_name: str,
+    tenant_id: uuid.UUID,
 ) -> None:
     model_call = ModelCall(
         operation=ModelOperation.EMBEDDING,
         model_name=model_name,
         status=ModelCallStatus.FAILED,
+        tenant_id=tenant_id,
     )
     if owner_type == "image":
         model_call.image_id = owner_id

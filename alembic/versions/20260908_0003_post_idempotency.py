@@ -16,11 +16,21 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _has_column(table_name: str, column_name: str) -> bool:
+    return column_name in {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns(table_name)
+    }
+
+
 def upgrade() -> None:
+    if _has_column("posts", "idempotency_key"):
+        return
     op.add_column("posts", sa.Column("idempotency_key", sa.String(length=255), nullable=True))
     op.create_unique_constraint("uq_posts_idempotency_key", "posts", ["idempotency_key"])
 
 
 def downgrade() -> None:
+    if not _has_column("posts", "idempotency_key"):
+        return
     op.drop_constraint("uq_posts_idempotency_key", "posts", type_="unique")
     op.drop_column("posts", "idempotency_key")
