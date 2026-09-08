@@ -23,6 +23,15 @@ flowchart LR
 
 See [the full architecture](docs/specs/architecture.md), [the requirement contract](docs/specs/ai-image-recommendation-requirements.md), and [the capstone constraints](docs/specs/capstone-constraints.md).
 
+> [!IMPORTANT]
+> **Free-tier processing limitation**
+>
+> This project intentionally uses Gemini's free tier. The 50-image corpus may therefore take **multiple quota windows** to process completely. The system does **not** send the corpus in one request and does **not** treat a Gemini rate-limit response as a permanent failure.
+>
+> **Safe resume behavior:** on a rate-limit response, the worker records `retry_scheduled`, pauses for the configured cooldown, and resumes later without consuming the normal three-attempt limit. Only persistent, non-rate-limit problems remain visible as `failed` for inspection and explicit requeueing.
+>
+> **How to evaluate now:** the worker behavior, schema validation, retry logic, model-call cost tracking, ranking, mismatch guard, review workflow, and evaluation report are verifiable immediately through the documented commands and automated tests. A complete fresh corpus run requires the evaluator's own Gemini free-tier API key and may take time because the PostgreSQL database is local and intentionally not committed.
+
 ## Image dataset
 
 The repository includes a 50-image development corpus under `data/corpus/raw/`. It contains 10 JPG images in each of five categories: red fox, wolf, dog, bear, and deer. The batch-processing and retrieval features will use this small corpus to validate metadata extraction, embeddings, semantic matching, and mismatch rejection while staying within free-tier limits.
@@ -188,14 +197,6 @@ docker compose stop image-worker
 ```
 
 Step 2 is complete when every corpus image is `accepted` or `needs_review`, no image is `pending`, `processing`, `retry_scheduled`, or `failed`, and `vision_costs` shows the recorded calls.
-
-### Free-tier processing limitation
-
-The committed corpus contains 50 images, but Gemini free tier enforces request and quota limits. Processing the complete corpus can therefore take multiple quota windows. This is an expected operational constraint of a no-cost provider, not a reason to send all images in one request or mark the remaining images as permanently failed.
-
-The worker processes one image at a time. When Gemini returns a rate-limit response, it records the attempt as `retry_scheduled`, pauses for the configured cooldown, and tries again later without exhausting the normal three-attempt limit. Other persistent problems remain visible as `failed` so they can be inspected and explicitly requeued after the cause is fixed.
-
-An evaluator can verify the processing logic immediately through the automated worker tests, recorded model-call costs, and any already processed corpus subset. A full fresh run requires the evaluator's own Gemini free-tier API key and may take time because the database is intentionally local and is not committed to the repository. Leave the worker running to complete the full corpus, then use the status query above to verify the Stage 2 completion condition.
 
 ## Step 3: Matching engine
 
