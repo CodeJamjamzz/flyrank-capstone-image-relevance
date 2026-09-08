@@ -1,6 +1,6 @@
 # Usage Metering and Billing Engine
 
-This capstone combines a reliable SaaS usage-metering and billing backend with an AI-assisted semantic image recommendation workflow. The service uses FastAPI, PostgreSQL, Docker Compose, and Stripe Test Mode. The AI capability uses a free-tier Gemini Flash model or local Ollama models, validates all structured vision responses, and routes uncertain recommendations to review instead of accepting them silently.
+This capstone combines a reliable SaaS usage-metering and billing backend with an AI-assisted semantic image recommendation workflow. The service uses FastAPI, PostgreSQL, Docker Compose, and Stripe Test Mode. The current AI implementation uses Gemini Flash in free tier, validates all structured vision responses, and routes uncertain recommendations to review instead of accepting them silently.
 
 ## Architecture
 
@@ -188,6 +188,14 @@ docker compose stop image-worker
 ```
 
 Step 2 is complete when every corpus image is `accepted` or `needs_review`, no image is `pending`, `processing`, `retry_scheduled`, or `failed`, and `vision_costs` shows the recorded calls.
+
+### Free-tier processing limitation
+
+The committed corpus contains 50 images, but Gemini free tier enforces request and quota limits. Processing the complete corpus can therefore take multiple quota windows. This is an expected operational constraint of a no-cost provider, not a reason to send all images in one request or mark the remaining images as permanently failed.
+
+The worker processes one image at a time. When Gemini returns a rate-limit response, it records the attempt as `retry_scheduled`, pauses for the configured cooldown, and tries again later without exhausting the normal three-attempt limit. Other persistent problems remain visible as `failed` so they can be inspected and explicitly requeued after the cause is fixed.
+
+An evaluator can verify the processing logic immediately through the automated worker tests, recorded model-call costs, and any already processed corpus subset. A full fresh run requires the evaluator's own Gemini free-tier API key and may take time because the database is intentionally local and is not committed to the repository. Leave the worker running to complete the full corpus, then use the status query above to verify the Stage 2 completion condition.
 
 ## Step 3: Matching engine
 
