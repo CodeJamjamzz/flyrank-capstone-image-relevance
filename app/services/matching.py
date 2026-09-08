@@ -8,6 +8,7 @@ from sqlalchemy import case, select
 from sqlalchemy.orm import Session, aliased
 
 from app.core.config import Settings
+from app.core.tenancy import DEFAULT_TENANT_ID
 from app.db.models import (
     Embedding,
     Image,
@@ -71,7 +72,7 @@ def create_suggestions_if_needed(
             "No confident match: the post embedding is not available yet.",
         )
 
-    candidates = rank_candidates(session, post_embedding, configuration)
+    candidates = rank_candidates(session, post_embedding, configuration, post.tenant_id)
     if not candidates:
         return _persist_no_confident_match(
             session,
@@ -132,6 +133,7 @@ def rank_candidates(
     session: Session,
     post_embedding: Embedding,
     configuration: Settings,
+    tenant_id: uuid.UUID = DEFAULT_TENANT_ID,
 ) -> list[RankedCandidate]:
     image_embedding = aliased(Embedding)
     latest_image_embedding_id = (
@@ -148,6 +150,7 @@ def rank_candidates(
         .join(ImageMetadata, ImageMetadata.image_id == Image.id)
         .join(image_embedding, image_embedding.id == latest_image_embedding_id)
         .where(
+            Image.tenant_id == tenant_id,
             Image.processing_status == ImageProcessingStatus.ACCEPTED,
             ImageMetadata.overall_confidence
             >= Decimal(str(configuration.minimum_image_confidence)),

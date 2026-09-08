@@ -127,6 +127,11 @@ IMAGE_WORKER_RATE_LIMIT_BACKOFF_SECONDS=3600
 ```
 
 Increase the delay to `60` seconds for a slower free-tier pace. When Gemini returns a rate-limit response, the worker pauses for `IMAGE_WORKER_RATE_LIMIT_BACKOFF_SECONDS` (one hour by default) and resumes later without exhausting the three-attempt cap. Do not commit `.env`.
+### Tenant isolation and AI budget guard
+
+Every image, post, and AI model-call record belongs to a tenant. Requests use the default tenant unless an existing tenant ID is supplied in the `X-Tenant-ID` header. Matching and review queries only return records owned by that tenant.
+
+Set `AI_COST_BUDGET_USD` to the maximum recorded AI spend permitted for one tenant. Once recorded successful calls reach that limit, the service does not make another provider call. The image worker marks the item `retry_scheduled`, logs the budget condition, and waits `AI_BUDGET_BACKOFF_SECONDS` before checking again. Set `AI_COST_BUDGET_USD` to an empty value only for an explicitly unlimited local run.
 
 ### 2. Import and process the full corpus
 

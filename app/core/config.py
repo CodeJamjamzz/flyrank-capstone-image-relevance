@@ -1,7 +1,10 @@
+import uuid
 from decimal import Decimal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.core.tenancy import DEFAULT_TENANT_ID
 
 
 class Settings(BaseSettings):
@@ -20,6 +23,9 @@ class Settings(BaseSettings):
     gemini_vision_input_cost_per_million_units: Decimal = Decimal("0")
     gemini_vision_output_cost_per_million_units: Decimal = Decimal("0")
     gemini_embedding_input_cost_per_million_units: Decimal = Decimal("0")
+    ai_cost_budget_usd: Decimal | None = Field(default=None, ge=0)
+    ai_budget_backoff_seconds: int = Field(default=3600, ge=60)
+    default_tenant_id: uuid.UUID = DEFAULT_TENANT_ID
     maximum_suggestions: int = Field(default=3, ge=1)
 
 

@@ -53,18 +53,30 @@ def get_embedding_provider() -> EmbeddingProvider:
         ) from error
 
 
+def get_tenant_id(
+    x_tenant_id: Annotated[uuid.UUID | None, Header(alias="X-Tenant-ID")] = None,
+) -> uuid.UUID:
+    return x_tenant_id or settings.default_tenant_id
+
+
 @app.post("/posts", response_model=PostCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_post(
     payload: PostCreateRequest,
     response: Response,
     session: Annotated[Session, Depends(get_session)],
     provider: Annotated[EmbeddingProvider, Depends(get_embedding_provider)],
+    tenant_id: Annotated[uuid.UUID, Depends(get_tenant_id)],
     idempotency_key: Annotated[
         str | None, Header(alias="Idempotency-Key", min_length=1, max_length=255)
     ] = None,
 ) -> PostCreateResponse:
     if idempotency_key is not None:
-        existing_post = session.scalar(select(Post).where(Post.idempotency_key == idempotency_key))
+        existing_post = session.scalar(
+            select(Post).where(
+                Post.tenant_id == tenant_id,
+                Post.idempotency_key == idempotency_key,
+            )
+        )
         if existing_post is not None:
             if existing_post.text != payload.text:
                 raise HTTPException(
@@ -78,6 +90,7 @@ def create_post(
             )
 
     post = Post(
+        tenant_id=tenant_id,
         text=payload.text,
         recognized_subject=recognize_subject(payload.text),
         idempotency_key=idempotency_key,
@@ -87,7 +100,12 @@ def create_post(
         session.flush()
     except IntegrityError as error:
         session.rollback()
-        existing_post = session.scalar(select(Post).where(Post.idempotency_key == idempotency_key))
+        existing_post = session.scalar(
+            select(Post).where(
+                Post.tenant_id == tenant_id,
+                Post.idempotency_key == idempotency_key,
+            )
+        )
         if existing_post is None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -104,7 +122,14 @@ def create_post(
             latest_embedding_for_post(session, existing_post.id) is not None,
         )
 
-    embedding_ready = embed_post_if_needed(session, post.id, post.text, provider, settings)
+    embedding_ready = embed_post_if_needed(
+        session,
+        post.id,
+        post.text,
+        provider,
+        settings,
+        tenant_id,
+    )
     session.refresh(post)
     return _post_create_response(post, embedding_ready)
 
@@ -123,21 +148,25 @@ def _post_create_response(post: Post, embedding_ready: bool) -> PostCreateRespon
 def get_post_images(
     post_id: uuid.UUID,
     session: Annotated[Session, Depends(get_session)],
+    tenant_id: Annotated[uuid.UUID, Depends(get_tenant_id)],
 ) -> SuggestionListResponse:
-    post = session.get(Post, post_id)
+    post = session.scalar(select(Post).where(Post.id == post_id, Post.tenant_id == tenant_id))
     if post is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
     if latest_embedding_for_post(session, post.id) is None:
         provider = get_embedding_provider()
-        embed_post_if_needed(session, post.id, post.text, provider, settings)
+        embed_post_if_needed(session, post.id, post.text, provider, settings, tenant_id)
 
     suggestions = create_suggestions_if_needed(session, post.id, settings)
     image_ids = [
         suggestion.image_id for suggestion in suggestions if suggestion.image_id is not None
     ]
     images = {
-        image.id: image for image in session.query(Image).filter(Image.id.in_(image_ids)).all()
+        image.id: image
+        for image in session.query(Image)
+        .filter(Image.id.in_(image_ids), Image.tenant_id == tenant_id)
+        .all()
     }
     return SuggestionListResponse(
         post_id=post.id,
@@ -155,11 +184,12 @@ def get_post_images(
 @app.get("/suggestions", response_model=SuggestionReviewListResponse)
 def list_review_suggestions(
     session: Annotated[Session, Depends(get_session)],
+    tenant_id: Annotated[uuid.UUID, Depends(get_tenant_id)],
     suggestion_status: Annotated[
         SuggestionStatus | None, Query()
     ] = SuggestionStatus.PENDING_REVIEW,
 ) -> SuggestionReviewListResponse:
-    suggestions = list_suggestions_for_review(session, suggestion_status)
+    suggestions = list_suggestions_for_review(session, suggestion_status, tenant_id)
     return SuggestionReviewListResponse(
         suggestions=[
             _suggestion_inspection_response(session, suggestion) for suggestion in suggestions
@@ -171,9 +201,10 @@ def list_review_suggestions(
 def inspect_suggestion(
     suggestion_id: uuid.UUID,
     session: Annotated[Session, Depends(get_session)],
+    tenant_id: Annotated[uuid.UUID, Depends(get_tenant_id)],
 ) -> SuggestionInspectionResponse:
     try:
-        suggestion = get_suggestion_for_review(session, suggestion_id)
+        suggestion = get_suggestion_for_review(session, suggestion_id, tenant_id)
     except SuggestionNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Suggestion not found"
@@ -186,6 +217,7 @@ def submit_review_decision(
     suggestion_id: uuid.UUID,
     payload: ReviewDecisionRequest,
     session: Annotated[Session, Depends(get_session)],
+    tenant_id: Annotated[uuid.UUID, Depends(get_tenant_id)],
 ) -> SuggestionInspectionResponse:
     try:
         suggestion = review_suggestion(
@@ -193,6 +225,7 @@ def submit_review_decision(
             suggestion_id,
             payload.decision,
             payload.reviewer_note,
+            tenant_id,
         )
     except SuggestionNotFoundError as error:
         raise HTTPException(

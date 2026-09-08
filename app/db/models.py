@@ -22,6 +22,7 @@ from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.tenancy import DEFAULT_TENANT_ID
 from app.db.base import Base
 
 
@@ -75,6 +76,13 @@ class ModelCallStatus(enum.StrEnum):
     FAILED = "failed"
 
 
+class Tenant(Base):
+    __tablename__ = "tenants"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Image(Base):
     __tablename__ = "images"
     __table_args__ = (
@@ -85,8 +93,12 @@ class Image(Base):
             "next_retry_at",
             postgresql_where=text("processing_status IN ('pending', 'retry_scheduled')"),
         ),
+        Index("ix_images_tenant_status_retry", "tenant_id", "processing_status", "next_retry_at"),
     )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="RESTRICT"), default=DEFAULT_TENANT_ID
+    )
     file_path: Mapped[str] = mapped_column(String(500), unique=True)
     sha256: Mapped[str] = mapped_column(String(64), unique=True)
     dataset_label: Mapped[DatasetLabel] = mapped_column(
@@ -148,10 +160,17 @@ class ImageTag(Base):
 
 class Post(Base):
     __tablename__ = "posts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_posts_tenant_idempotency_key"),
+        Index("ix_posts_tenant_created_at", "tenant_id", "created_at"),
+    )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="RESTRICT"), default=DEFAULT_TENANT_ID
+    )
     text: Mapped[str] = mapped_column(Text)
     recognized_subject: Mapped[str | None] = mapped_column(String(100))
-    idempotency_key: Mapped[str | None] = mapped_column(String(255), unique=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -239,11 +258,15 @@ class ModelCall(Base):
             "(image_id IS NOT NULL) <> (post_id IS NOT NULL)", name="ck_model_calls_single_owner"
         ),
         Index("ix_model_calls_created_at", "created_at"),
+        Index("ix_model_calls_tenant_created_at", "tenant_id", "created_at"),
         CheckConstraint("input_units >= 0", name="ck_model_calls_input_units_non_negative"),
         CheckConstraint("output_units >= 0", name="ck_model_calls_output_units_non_negative"),
         CheckConstraint("estimated_cost_usd >= 0", name="ck_model_calls_cost_non_negative"),
     )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="RESTRICT"), default=DEFAULT_TENANT_ID
+    )
     image_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"))
     post_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"))
     operation: Mapped[ModelOperation] = mapped_column(

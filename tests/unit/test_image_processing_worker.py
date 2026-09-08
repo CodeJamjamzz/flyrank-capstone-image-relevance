@@ -16,3 +16,9 @@ def test_next_poll_delay_uses_rate_limit_backoff() -> None:
     configuration = Settings(image_worker_rate_limit_backoff_seconds=3600)
 
     assert next_poll_delay_seconds(True, configuration, rate_limited=True) == 3600
+
+
+def test_next_poll_delay_uses_budget_backoff() -> None:
+    configuration = Settings(ai_budget_backoff_seconds=7200)
+
+    assert next_poll_delay_seconds(True, configuration, budget_limited=True) == 7200

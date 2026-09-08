@@ -32,14 +32,18 @@ class FakeSession:
         del model, identifier
         return self.post
 
+    def scalar(self, statement: object) -> Post | None:
+        del statement
+        return self.post
+
     def query(self, model: type[object]) -> FakeQuery:
         del model
         return FakeQuery()
 
 
 class FakeQuery:
-    def filter(self, expression: object) -> FakeQuery:
-        del expression
+    def filter(self, *expressions: object) -> FakeQuery:
+        del expressions
         return self
 
     def all(self) -> list[object]:
@@ -158,3 +162,22 @@ def test_create_post_rejects_idempotency_key_reused_for_different_text(monkeypat
         )
 
     assert response.status_code == 409
+
+
+def test_create_post_scopes_the_record_to_the_request_tenant(monkeypatch) -> None:
+    session = FakeSession()
+    tenant_id = uuid.uuid4()
+    monkeypatch.setitem(app.dependency_overrides, get_session, lambda: session)
+    monkeypatch.setitem(app.dependency_overrides, get_embedding_provider, lambda: object())
+    monkeypatch.setattr(main_module, "embed_post_if_needed", lambda *args: True)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/posts",
+            json={"text": "A red fox in snow"},
+            headers={"X-Tenant-ID": str(tenant_id)},
+        )
+
+    assert response.status_code == 201
+    assert session.post is not None
+    assert session.post.tenant_id == tenant_id

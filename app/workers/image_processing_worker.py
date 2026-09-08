@@ -15,8 +15,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def next_poll_delay_seconds(
-    processed: bool, configuration: Settings, rate_limited: bool = False
+    processed: bool,
+    configuration: Settings,
+    rate_limited: bool = False,
+    budget_limited: bool = False,
 ) -> int:
+    if budget_limited:
+        return configuration.ai_budget_backoff_seconds
     if rate_limited:
         return configuration.image_worker_rate_limit_backoff_seconds
     if processed:
@@ -36,7 +41,12 @@ def run_forever() -> None:
         except Exception:
             logger.exception("Image worker failed while processing an image")
             outcome = None
-        if outcome is not None and outcome.rate_limited:
+        if outcome is not None and outcome.budget_limited:
+            logger.warning(
+                "AI cost budget reached; pausing for %s seconds.",
+                settings.ai_budget_backoff_seconds,
+            )
+        elif outcome is not None and outcome.rate_limited:
             logger.warning(
                 "Vision provider rate limited the worker; pausing for %s seconds.",
                 settings.image_worker_rate_limit_backoff_seconds,
@@ -46,6 +56,7 @@ def run_forever() -> None:
                 outcome.processed if outcome is not None else False,
                 settings,
                 rate_limited=outcome.rate_limited if outcome is not None else False,
+                budget_limited=outcome.budget_limited if outcome is not None else False,
             )
         )
 

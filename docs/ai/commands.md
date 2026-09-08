@@ -22,6 +22,7 @@ Run commands from the repository root. If a command fails, first inspect this fi
 | List permanent image-processing failures and their recorded errors | `python -m app.cli.failed_images` |
 | Requeue failed corpus images after fixing a provider or configuration issue | `python -m app.cli.retry_failed_images` |
 | Show recorded vision calls and estimated costs | `python -m app.cli.vision_costs` |
+| Check the configured per-tenant AI cost budget | `Get-Content .env | Select-String AI_COST_BUDGET_USD` |
 | Create missing embeddings for accepted corpus images | `python -m app.cli.embed_corpus` |
 | Show recorded embedding calls and estimated costs | `python -m app.cli.embedding_costs` |
 | Create an image-recommendation post | `Invoke-RestMethod -Method Post -Uri http://localhost:8000/posts -ContentType 'application/json' -Body '{"text":"A red fox in a snowy forest"}'` |

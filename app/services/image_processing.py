@@ -26,6 +26,7 @@ from app.db.models import (
     Tag,
 )
 from app.schemas.image_metadata import ImageMetadataPayload
+from app.services.budget import CostBudgetExceededError, ensure_cost_budget_available
 from app.services.embeddings import EmbeddingProvider, embed_image_if_needed
 from app.services.vision import VisionProvider, VisionProviderError, VisionResponse
 
@@ -43,6 +44,7 @@ class ClaimedImage:
 class ProcessingOutcome:
     processed: bool
     rate_limited: bool = False
+    budget_limited: bool = False
 
 
 def claim_next_image(session: Session, now: datetime | None = None) -> ClaimedImage | None:
@@ -96,10 +98,23 @@ def process_next_image(
         raise RuntimeError("Claimed image or processing attempt no longer exists")
 
     try:
+        ensure_cost_budget_available(session, image.tenant_id, configuration)
+    except CostBudgetExceededError as error:
+        _complete_failure(
+            session,
+            image,
+            attempt,
+            error,
+            retryable=True,
+            configuration=configuration,
+            budget_limited=True,
+        )
+        return ProcessingOutcome(processed=True, budget_limited=True)
+    try:
         image_path = resolve_image_path(project_root, image.file_path)
         response = provider.analyze_image(image_path)
     except VisionProviderError as error:
-        _record_failed_model_call(session, image.id, provider.model_name)
+        _record_failed_model_call(session, image, provider.model_name)
         _complete_failure(
             session,
             image,
@@ -111,13 +126,13 @@ def process_next_image(
         )
         return ProcessingOutcome(processed=True, rate_limited=error.rate_limited)
     except OSError as error:
-        _record_failed_model_call(session, image.id, provider.model_name)
+        _record_failed_model_call(session, image, provider.model_name)
         _complete_failure(
             session, image, attempt, error, retryable=False, configuration=configuration
         )
         return ProcessingOutcome(processed=True)
 
-    _record_successful_model_call(session, image.id, response, configuration)
+    _record_successful_model_call(session, image, response, configuration)
     try:
         metadata = ImageMetadataPayload.model_validate_json(response.raw_response)
     except ValidationError as error:
@@ -175,13 +190,14 @@ def utc_now() -> datetime:
 
 def _record_successful_model_call(
     session: Session,
-    image_id: uuid.UUID,
+    image: Image,
     response: VisionResponse,
     configuration: Settings,
 ) -> None:
     session.add(
         ModelCall(
-            image_id=image_id,
+            image_id=image.id,
+            tenant_id=image.tenant_id,
             operation=ModelOperation.VISION,
             model_name=response.model_name,
             input_units=response.input_units,
@@ -194,10 +210,11 @@ def _record_successful_model_call(
     )
 
 
-def _record_failed_model_call(session: Session, image_id: uuid.UUID, model_name: str) -> None:
+def _record_failed_model_call(session: Session, image: Image, model_name: str) -> None:
     session.add(
         ModelCall(
-            image_id=image_id,
+            image_id=image.id,
+            tenant_id=image.tenant_id,
             operation=ModelOperation.VISION,
             model_name=model_name,
             status=ModelCallStatus.FAILED,
@@ -213,13 +230,23 @@ def _complete_failure(
     retryable: bool,
     configuration: Settings,
     rate_limited: bool = False,
+    budget_limited: bool = False,
 ) -> None:
     now = utc_now()
     attempt.error_code = type(error).__name__
     attempt.error_message = str(error)[:2000]
     attempt.finished_at = now
 
-    if rate_limited:
+    if budget_limited:
+        next_retry_at = now + timedelta(seconds=configuration.ai_budget_backoff_seconds)
+        attempt.status = AttemptStatus.RETRY_SCHEDULED
+        attempt.retry_at = next_retry_at
+        image.processing_status = ImageProcessingStatus.RETRY_SCHEDULED
+        image.next_retry_at = next_retry_at
+        logger.warning(
+            "AI cost budget reached for tenant %s; deferred %s.", image.tenant_id, image.file_path
+        )
+    elif rate_limited:
         next_retry_at = now + timedelta(
             seconds=configuration.image_worker_rate_limit_backoff_seconds
         )

@@ -127,3 +127,40 @@ def test_image_embedding_input_combines_caption_and_sorted_tags() -> None:
     text = image_embedding_text(cast(object, FakeImageTextSession()), uuid.uuid4())
 
     assert text == "A red fox in snow.\nTags: red fox, snow, wildlife"
+
+
+class BudgetBlockedSession:
+    def __init__(self) -> None:
+        self.scalar_calls = 0
+        self.items: list[object] = []
+
+    def scalar(self, statement: object) -> object:
+        del statement
+        self.scalar_calls += 1
+        return None if self.scalar_calls == 1 else Decimal("1.00")
+
+    def add_all(self, items: list[object]) -> None:
+        self.items.extend(items)
+
+    def add(self, item: object) -> None:
+        self.items.append(item)
+
+    def commit(self) -> None:
+        return None
+
+
+def test_embedding_budget_guard_skips_provider_call() -> None:
+    session = BudgetBlockedSession()
+    provider = FakeProvider([0.01] * EMBEDDING_DIMENSIONS)
+
+    embedded = embed_post_if_needed(
+        cast(object, session),
+        uuid.uuid4(),
+        "A red fox in a snowy forest",
+        provider,
+        Settings(ai_cost_budget_usd=Decimal("1.00")),
+    )
+
+    assert embedded is False
+    assert provider.calls == []
+    assert session.items == []
